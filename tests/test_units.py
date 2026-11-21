@@ -290,3 +290,24 @@ def test_first_message_order():
 def test_outbound_first_message_states_purpose():
     msg = Settings().outbound_first_message("your check-up")
     assert msg.startswith("Hi, this is Cimo, an AI assistant calling from") and "your check-up" in msg
+
+
+def test_copying_notifier_keeps_copy_even_if_send_fails(tmp_path):
+    from twiliovoice.notify import CopyingNotifier, OutboxNotifier
+
+    class Down:
+        def send(self, s, b):
+            raise OSError("smtp down")
+    n = CopyingNotifier(Down(), OutboxNotifier(tmp_path / "o.jsonl"))
+    with pytest.raises(OSError):
+        n.send("Call summary", "body")
+    assert "Call summary" in (tmp_path / "o.jsonl").read_text()
+
+
+def test_build_agent_uses_smtp_with_copy(tmp_path):
+    from twiliovoice.app import build_agent
+    from twiliovoice.brain import FakeBrain
+    from twiliovoice.notify import CopyingNotifier
+
+    s = Settings(data_dir=tmp_path, smtp_host="smtp.example.test", team_email="desk@example.test")
+    assert isinstance(build_agent(s, brain=FakeBrain()).notifier, CopyingNotifier)

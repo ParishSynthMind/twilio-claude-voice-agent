@@ -34,7 +34,7 @@ from .calllog import CallLog
 from .config import Settings
 from .costguard import CostGuard, OutboundRefused
 from .heartbeat import Heartbeat, default_alert
-from .notify import Notifier, OutboxNotifier, SmtpNotifier
+from .notify import CopyingNotifier, Notifier, OutboxNotifier, SmtpNotifier
 from .scheduling import Scheduler
 from .service import PATHS, PhoneAgent
 from .tools import VoiceAgentTools
@@ -67,8 +67,9 @@ def build_agent(settings: Settings, brain=None, calendar=None, notifier: Optiona
             calendar = LocalCalendar(settings.data_dir / "calendar.sqlite3")
     if notifier is None:
         if settings.smtp_host and settings.team_email:
-            notifier = SmtpNotifier(settings.smtp_host, settings.smtp_port, settings.smtp_user,
-                                    settings.smtp_password, settings.smtp_from, settings.team_email)
+            notifier = CopyingNotifier(SmtpNotifier(settings.smtp_host, settings.smtp_port, settings.smtp_user,
+                                                    settings.smtp_password, settings.smtp_from, settings.team_email),
+                                       OutboxNotifier(settings.data_dir / "outbox.jsonl"))
         else:
             notifier = OutboxNotifier(settings.data_dir / "outbox.jsonl")
     alert = alert or _alert("Twilio phone agent")

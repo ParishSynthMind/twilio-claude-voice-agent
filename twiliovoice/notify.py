@@ -38,3 +38,15 @@ class OutboxNotifier:
     def send(self, subject: str, body: str) -> None:
         with self.path.open("a") as f:
             f.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "subject": subject, "body": body}) + "\n")
+
+
+class CopyingNotifier:
+    """Sends through the real notifier AND keeps a local copy in the outbox file (an audit trail of
+    every summary, lead and hand-over email). If sending fails, the copy is still written."""
+
+    def __init__(self, primary: Notifier, copy: OutboxNotifier):
+        self.primary, self.copy = primary, copy
+
+    def send(self, subject: str, body: str) -> None:
+        self.copy.send(subject, body)
+        self.primary.send(subject, body)
