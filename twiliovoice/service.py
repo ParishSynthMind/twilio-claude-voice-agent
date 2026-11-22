@@ -168,7 +168,7 @@ class PhoneAgent:
         started = time.monotonic()
         try:
             result = self.brain.turn(self.log.transcript(sid), lambda name, args: self.tools.run(name, args, call),
-                                     self.guard.now().strftime("%A %d %B %Y"))
+                                     self.guard.now().strftime("%A %d %B %Y"), tool_events=self.log.tool_events(sid))
             result.latency_ms = int((time.monotonic() - started) * 1000)
             log.info("turn %s: %s ms, tools %s, tokens %s/%s", sid, result.latency_ms, result.tools_used,
                      result.input_tokens, result.output_tokens)

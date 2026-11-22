@@ -197,7 +197,7 @@ class SlowBrain:
     def __init__(self, delay):
         self.delay = delay
 
-    def turn(self, transcript, run_tool, today):
+    def turn(self, transcript, run_tool, today, tool_events=None):
         time.sleep(self.delay)
         return TurnResult(say="Here is the slow answer.")
 
@@ -218,7 +218,7 @@ def test_too_slow_brain_falls_back(make_env, alerts):
 
 
 class BrokenBrain:
-    def turn(self, transcript, run_tool, today):
+    def turn(self, transcript, run_tool, today, tool_events=None):
         raise RuntimeError("boom")
 
 
@@ -236,7 +236,7 @@ def test_injection_text_is_just_speech(env):
 
 def test_long_answer_is_capped_for_speech(make_env):
     class Wordy:
-        def turn(self, transcript, run_tool, today):
+        def turn(self, transcript, run_tool, today, tool_events=None):
             return TurnResult(say="This is a long sentence about parking. " * 60)
     client, agent, tw = make_env(brain=Wordy())
     call = tw.run(INBOUND, ["Is there parking?"])

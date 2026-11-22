@@ -131,3 +131,36 @@ def test_fake_brain_routes():
     assert fb.turn([{"speaker": "caller", "text": "a person please"}], run, "t").handover
     assert fb.turn([{"speaker": "caller", "text": "bye"}], run, "t").end_call
     assert calls == ["handover", "end_call"]
+
+
+def test_history_replays_earlier_tool_calls():
+    # Live test 2026-11-22: without this Claude "corrected" slots it had really checked.
+    transcript = [{"speaker": "agent", "text": "Hi", "at_utc": "2026-11-22T17:33:36"},
+                  {"speaker": "caller", "text": "Monday morning?", "at_utc": "2026-11-22T17:34:26"},
+                  {"speaker": "agent", "text": "Monday has 9am to 11:30am.", "at_utc": "2026-11-22T17:34:31"},
+                  {"speaker": "caller", "text": "I'm in pain", "at_utc": "2026-11-22T17:34:47"}]
+    events = [{"tool": "check_availability", "arguments": '{"date": "2026-11-23"}', "result": "Free: 9am",
+               "at_utc": "2026-11-22T17:34:28"}]
+    msgs = history_messages(transcript, events)
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user", "assistant", "user", "assistant", "user"]
+    use, res = msgs[3]["content"][0], msgs[4]["content"][0]
+    assert use["type"] == "tool_use" and use["name"] == "check_availability" and use["input"] == {"date": "2026-11-23"}
+    assert res["type"] == "tool_result" and res["tool_use_id"] == use["id"] and res["content"] == "Free: 9am"
+    assert msgs[5]["content"] == "Monday has 9am to 11:30am."
+
+
+def test_history_ignores_tools_after_the_last_answer():
+    transcript = [{"speaker": "agent", "text": "Hi", "at_utc": "2026-11-22T17:00:00"},
+                  {"speaker": "caller", "text": "bye", "at_utc": "2026-11-22T17:01:00"}]
+    events = [{"tool": "end_call", "arguments": "{}", "result": "ok", "at_utc": "2026-11-22T17:01:05"}]
+    assert history_messages(transcript, events) == history_messages(transcript)
+
+
+def test_turn_sends_tool_history_to_claude():
+    b, fa = brain([resp(text("ok"))])
+    transcript = [{"speaker": "agent", "text": "Hi", "at_utc": "t1"}, {"speaker": "caller", "text": "a", "at_utc": "t2"},
+                  {"speaker": "agent", "text": "done", "at_utc": "t4"}, {"speaker": "caller", "text": "b", "at_utc": "t5"}]
+    b.turn(transcript, lambda n, a: "x", "today",
+           [{"tool": "handover", "arguments": '{"urgent": true}', "result": "alerted", "at_utc": "t3"}])
+    sent = fa.requests[0]["messages"]
+    assert any(isinstance(m["content"], list) and m["content"][0].get("name") == "handover" for m in sent)

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 MAX_TOOL_ROUNDS = 3
 FALLBACK = ("Sorry, I'm having trouble with that just now. I can ask a member of the team to call you back. "
@@ -104,16 +104,49 @@ class TurnResult:
     latency_ms: int = 0
 
 
-def history_messages(transcript: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """The call so far as alternating user/assistant text (tool calls of earlier turns are not resent)."""
+def history_messages(transcript: List[Dict[str, Any]],
+                     tool_events: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """The call so far as alternating user/assistant messages. Tool calls of earlier turns are replayed
+    as tool_use/tool_result pairs before the answer they led to: without them Claude can't see what it
+    already checked or did (live test 2026-11-22: it "corrected" slots it had really looked up, and
+    raised the same urgent handover twice)."""
     messages: List[Dict[str, Any]] = []
-    for t in transcript:
-        role = "user" if t["speaker"] == "caller" else "assistant"
-        text = f"<caller>{t['text']}</caller>" if role == "user" else t["text"]
+    events = sorted(tool_events or [], key=lambda e: e.get("at_utc") or "")
+    used = 0
+
+    def add(role: str, content: Any) -> None:
         if messages and messages[-1]["role"] == role:
-            messages[-1]["content"] += "\n" + text
-        else:
-            messages.append({"role": role, "content": text})
+            prev = messages[-1]["content"]
+            if isinstance(prev, str) and isinstance(content, str):
+                messages[-1]["content"] = prev + "\n" + content
+                return
+            as_blocks = lambda c: [{"type": "text", "text": c}] if isinstance(c, str) else list(c)  # noqa: E731
+            messages[-1]["content"] = as_blocks(prev) + as_blocks(content)
+            return
+        messages.append({"role": role, "content": content})
+
+    for t in transcript:
+        if t["speaker"] == "caller":
+            add("user", f"<caller>{t['text']}</caller>")
+            continue
+        at = t.get("at_utc") or ""
+        batch = []
+        while used < len(events) and at and (events[used].get("at_utc") or "") <= at:
+            batch.append(events[used])
+            used += 1
+        if batch and messages:   # tools before the greeting can't happen; skip them if they somehow do
+            uses, results = [], []
+            for e in batch:
+                tid = f"toolu_hist_{len(messages)}_{len(uses)}"
+                try:
+                    args = json.loads(e.get("arguments") or "{}")
+                except (TypeError, ValueError):
+                    args = {}
+                uses.append({"type": "tool_use", "id": tid, "name": e["tool"], "input": args if isinstance(args, dict) else {}})
+                results.append({"type": "tool_result", "tool_use_id": tid, "content": str(e.get("result") or "")[:2000]})
+            add("assistant", uses)
+            messages.append({"role": "user", "content": results})
+        add("assistant", t["text"])
     if messages and messages[0]["role"] == "assistant":
         messages.insert(0, {"role": "user", "content": "<caller>(the call connects)</caller>"})
     return messages
@@ -139,8 +172,9 @@ class ClaudeBrain:
         return SYSTEM_PROMPT.format(name=self.agent_name, business=self.business, today=today,
                                     timezone=self.timezone, knowledge_base=self.kb)
 
-    def turn(self, transcript: List[Dict[str, Any]], run_tool: ToolRunner, today: str) -> TurnResult:
-        messages = history_messages(transcript)
+    def turn(self, transcript: List[Dict[str, Any]], run_tool: ToolRunner, today: str,
+             tool_events: Optional[List[Dict[str, Any]]] = None) -> TurnResult:
+        messages = history_messages(transcript, tool_events)
         result = TurnResult(say="")
         try:
             for _ in range(MAX_TOOL_ROUNDS + 1):
@@ -197,7 +231,8 @@ class FakeBrain:
     def __init__(self):
         self.seen: List[str] = []
 
-    def turn(self, transcript: List[Dict[str, Any]], run_tool: ToolRunner, today: str) -> TurnResult:
+    def turn(self, transcript: List[Dict[str, Any]], run_tool: ToolRunner, today: str,
+             tool_events: Optional[List[Dict[str, Any]]] = None) -> TurnResult:
         last = next((t["text"] for t in reversed(transcript) if t["speaker"] == "caller"), "")
         self.seen.append(last)
         low = last.lower()
