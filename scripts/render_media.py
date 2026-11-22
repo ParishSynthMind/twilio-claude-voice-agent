@@ -56,7 +56,7 @@ def thumb(date, q, a):
         ("Twilio Voice, live", " red"), ("Claude + tools", ""), ("AI disclosure first", ""),
         ("signed webhooks", ""), ("booking + hand-over", ""), ("cost guard", "")])
     return page("<div><h1>An AI phone agent<br>on Twilio, with Claude</h1>"
-                "<div class='k'>Real calls in and out. Answers, books and hands over.<br>"
+                "<div class='k'>Real phone calls answered by Claude: questions, diary, urgent hand-over.<br>"
                 f"Live-tested on a Twilio trial, {html.escape(date)}.</div></div>"
                 f"<div><div class='bub'>{html.escape(q)}</div><div class='bub o'>{html.escape(a)}</div></div>"
                 f"<div>{pills}</div>", "thumb")

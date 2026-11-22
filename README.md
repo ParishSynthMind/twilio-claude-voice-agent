@@ -17,7 +17,24 @@ It does:
 - **Outbound rules:** allowed countries only, inside the recipient's local calling hours. UAE numbers are off by default.
 
 <!-- LIVE-STATUS -->
-**Status (21 Nov 2026): built and tested offline. The live test on a Twilio trial account is in progress.**
+**Status (22 Nov 2026): live-tested with a real phone call on a Twilio trial account.** A real UK mobile rang the Twilio number; Twilio's speech recognition, Claude and this server ran a 118-second call ([transcript](examples/live-run/calls.json), [Twilio's own call record](examples/live-run/twilio-calls.json), [team emails](examples/live-run/team-emails.json), numbers masked).
+
+![Live call](media/live-call-1.png)
+
+| | Proven live (real phone, real Twilio, real Claude) | Tested offline only (simulated Twilio) |
+|---|---|---|
+| Inbound call, AI disclosure first, speech in, Claude's answer spoken back | yes | yes |
+| Knowledge-base answer (parking) | yes | yes |
+| `check_availability` against the calendar | yes (Monday's real free slots) | yes |
+| URGENT hand-over email when the caller is in pain | yes | yes |
+| Goodbye and `end_call` | yes | yes |
+| Summary email through `POST /reconcile` (trial numbers send no status callback) | yes | yes |
+| "One moment" path when Claude is slow | yes (first turn took 12.7 s) | yes |
+| `book_appointment` completing a booking | no (the caller moved on to the hand-over) | yes |
+| Outbound calls (`POST /outbound`) | no | yes |
+| `<Dial>` transfer to a person, call recording | no (Twilio blocks both on trial accounts) | yes |
+
+Two bugs were found by the live call and fixed the same evening: the trial console's webhook arrives without `X-Twilio-Signature` (now verified through the REST API instead, trial only), and earlier turns' tool calls were not sent back to Claude, so it "corrected" slots it had really checked and raised the hand-over twice (the picture above is that call; both fixes have tests).
 <!-- /LIVE-STATUS -->
 
 ## How it works
@@ -98,7 +115,7 @@ ANTHROPIC_API_KEY=... .venv/bin/python scripts/simulate_call.py --live-claude --
 ## Tests
 
 ```bash
-.venv/bin/pytest -q     # 180 tests, all offline: Twilio and Claude are simulated
+.venv/bin/pytest -q     # 183 tests, all offline: Twilio and Claude are simulated
 .venv/bin/ruff check .
 .venv/bin/pip-audit -r requirements.lock
 ```

@@ -1,0 +1,15 @@
+[
+  {
+    "sid": "CA3647b818e1ba9efd4cc8b6b03c7e73d6",
+    "direction": "inbound",
+    "status": "completed",
+    "start_time": "Sun, 22 Nov 2026 17:33:36 +0000",
+    "end_time": "Sun, 22 Nov 2026 17:35:34 +0000",
+    "duration": "118",
+    "price": null,
+    "price_unit": null,
+    "answered_by": null,
+    "from": "+4473*****556",
+    "to": "+4477*****807"
+  }
+]
