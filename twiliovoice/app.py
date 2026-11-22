@@ -1,6 +1,7 @@
 """FastAPI service Twilio calls during a phone call.
 
-Twilio webhooks (form posts, every one must carry a valid X-Twilio-Signature):
+Twilio webhooks (form posts, every one must carry a valid X-Twilio-Signature; the one exception is
+TRIAL_VERIFY_UNSIGNED on a trial account, where an unsigned post is checked against the REST API):
 - POST /twilio/voice/inbound       the number's "A call comes in" URL: disclosure + first <Gather>
 - POST /twilio/voice/outbound      TwiML for a call this service placed, once answered
 - POST /twilio/voice/gather        what the caller said (SpeechResult) -> Claude -> next <Gather>
@@ -99,6 +100,34 @@ def create_app(settings: Optional[Settings] = None, agent: Optional[PhoneAgent] 
     app.state.agent = agent
     pending: Dict[str, asyncio.Task] = {}
     app.state.pending = pending
+    api_verified: Dict[str, Tuple[str, str]] = {}   # CallSid -> (From, To) confirmed via the REST API
+    LIVE = {"queued", "ringing", "in-progress"}
+
+    async def verify_unsigned_via_api(name: str, body: bytes) -> Dict[str, str]:
+        """Trial console webhooks arrive unsigned: accept one only if Twilio's own API says this CallSid
+        is a call on our account between the same numbers (and still live, except for end-of-call posts)."""
+        params = dict(twilio_signature.parse_form(body))
+        sid = params.get("CallSid", "")
+        if not (sid.startswith("CA") and len(sid) == 34) or agent.twilio is None:
+            raise HTTPException(403, "invalid signature")
+        if params.get("AccountSid") not in (None, settings.twilio_account_sid):
+            raise HTTPException(403, "wrong account")
+        pair = (params.get("From", ""), params.get("To", ""))
+        if api_verified.get(sid) != pair:   # one REST lookup per call, not per turn
+            try:
+                call = await asyncio.to_thread(agent.twilio.get_call, sid)
+            except Exception as exc:  # TwilioError or network: refuse, never guess
+                log.warning("rejected unsigned %s: CallSid lookup failed (%s)", name, exc)
+                raise HTTPException(403, "invalid signature") from exc
+            ok = (call.get("account_sid") == settings.twilio_account_sid
+                  and (call.get("from"), call.get("to")) == pair
+                  and (call.get("status") in LIVE or name in ("status", "dial-status")))
+            if not ok:
+                log.warning("rejected unsigned %s: CallSid %s not a matching call on this account", name, sid)
+                raise HTTPException(403, "invalid signature")
+            api_verified[sid] = pair
+        log.info("accepted unsigned trial %s for %s (verified via REST API)", name, sid)
+        return params
 
     async def form(request: Request, name: str) -> Dict[str, str]:
         body = await request.body()
@@ -113,6 +142,9 @@ def create_app(settings: Optional[Settings] = None, agent: Optional[PhoneAgent] 
         try:
             params = twilio_signature.verify(settings.twilio_auth_token, url, body, dict(request.headers))
         except twilio_signature.TwilioSignatureError as exc:
+            if (settings.trial_mode and settings.trial_verify_unsigned
+                    and twilio_signature.SIGNATURE_HEADER not in {k.lower() for k in request.headers.keys()}):
+                return await verify_unsigned_via_api(name, body)
             log.warning("rejected %s: %s", name, exc)
             raise HTTPException(403, "invalid signature") from exc
         if settings.twilio_account_sid and dict(params).get("AccountSid") not in (None, settings.twilio_account_sid):

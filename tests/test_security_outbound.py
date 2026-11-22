@@ -281,3 +281,52 @@ def test_reconcile_skips_recent_and_live_calls(env, rest):
 def test_reconcile_needs_admin(env):
     client, agent, tw = env
     assert client.post("/reconcile").status_code == 401
+
+
+# Trial console webhooks arrive unsigned (seen live 2026-11-22): TRIAL_VERIFY_UNSIGNED checks the CallSid.
+def unsigned(client, path, params):
+    return client.post(path, content=urlencode(params), headers={"Content-Type": "application/x-www-form-urlencoded"})
+
+
+def live_call(rest, **kw):
+    call = {"sid": FORM["CallSid"], "account_sid": SID, "from": FORM["From"], "to": FORM["To"], "status": "ringing"}
+    call.update(kw)
+    rest.calls[FORM["CallSid"]] = call
+
+
+def test_trial_unsigned_accepted_when_api_confirms_call(make_env, rest):
+    client, agent, tw = make_env(trial_mode=True, trial_verify_unsigned=True)
+    live_call(rest)
+    assert unsigned(client, "/twilio/voice/inbound", FORM).status_code == 200
+
+
+def test_trial_unsigned_refused_without_the_flag(make_env, rest):
+    client, agent, tw = make_env(trial_mode=True)
+    live_call(rest)
+    assert unsigned(client, "/twilio/voice/inbound", FORM).status_code == 403
+
+
+def test_trial_flag_ignored_on_a_paid_account(make_env, rest):
+    client, agent, tw = make_env(trial_mode=False, trial_verify_unsigned=True)
+    live_call(rest)
+    assert unsigned(client, "/twilio/voice/inbound", FORM).status_code == 403
+
+
+@pytest.mark.parametrize("change", [{"account_sid": "AC" + "2" * 32}, {"from": "+19005550000"},
+                                    {"to": "+447700900999"}, {"status": "completed"}])
+def test_trial_unsigned_refused_when_api_disagrees(make_env, rest, change):
+    client, agent, tw = make_env(trial_mode=True, trial_verify_unsigned=True)
+    live_call(rest, **change)
+    assert unsigned(client, "/twilio/voice/inbound", FORM).status_code == 403
+
+
+def test_trial_unsigned_refused_for_unknown_call(make_env, rest):
+    client, agent, tw = make_env(trial_mode=True, trial_verify_unsigned=True)
+    rest.get_call = lambda sid: (_ for _ in ()).throw(TwilioError(404, {"message": "not found"}))
+    assert unsigned(client, "/twilio/voice/inbound", FORM).status_code == 403
+
+
+def test_trial_bad_signature_still_refused(make_env, rest):
+    client, agent, tw = make_env(trial_mode=True, trial_verify_unsigned=True)
+    live_call(rest)
+    assert post(client, "/twilio/voice/inbound", FORM, token="other-token").status_code == 403

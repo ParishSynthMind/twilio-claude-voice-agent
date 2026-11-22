@@ -12,7 +12,7 @@ It does:
 - **AI disclosure and the recording notice** in the very first sentence, on every call.
 - **Urgent hand-over to a person:** the team gets an URGENT email, and the call is transferred to a human number when one is set up.
 - **Call summary by email** after every call, sent once even when Twilio retries, with the full transcript.
-- **Signed webhooks:** every request must carry a valid `X-Twilio-Signature`.
+- **Signed webhooks:** every request must carry a valid `X-Twilio-Signature`. One trial-only exception, found in the live test: the trial console's "Receive a call > Custom" webhook arrives unsigned, so with `TRIAL_VERIFY_UNSIGNED=1` (ignored on paid accounts) an unsigned post is accepted only if Twilio's REST API confirms its `CallSid` is a live call on this account between the same numbers.
 - **Cost guard:** a maximum call length, a turn cap, a daily call cap, a daily minutes budget, and a kill switch that also hangs up live calls.
 - **Outbound rules:** allowed countries only, inside the recipient's local calling hours. UAE numbers are off by default.
 
@@ -98,7 +98,7 @@ ANTHROPIC_API_KEY=... .venv/bin/python scripts/simulate_call.py --live-claude --
 ## Tests
 
 ```bash
-.venv/bin/pytest -q     # 169 tests, all offline: Twilio and Claude are simulated
+.venv/bin/pytest -q     # 180 tests, all offline: Twilio and Claude are simulated
 .venv/bin/ruff check .
 .venv/bin/pip-audit -r requirements.lock
 ```
@@ -121,7 +121,7 @@ Dependency audit (pip-audit 2.10.1, 21 Nov 2026): 0 known vulnerabilities before
 
 | Symptom | Check | Fix |
 |---|---|---|
-| Calls get "an application error has occurred" | `var/.../app.log` for `rejected ...: signature` | `PUBLIC_BASE_URL` must be the exact https address Twilio calls; the auth token must be the account's current one (rotating it breaks signatures until the server restarts with the new one) |
+| Calls get "an application error has occurred" | `var/.../app.log` for `rejected ...: signature` (on a trial, `missing X-Twilio-Signature` means the console webhook: set `TRIAL_VERIFY_UNSIGNED=1`) | `PUBLIC_BASE_URL` must be the exact https address Twilio calls; the auth token must be the account's current one (rotating it breaks signatures until the server restarts with the new one) |
 | Caller hears "One moment" often | the `turn ... ms` lines in the log | raise `REPLY_WAIT_SECONDS` a little (Twilio waits about 15 s, trial about 5 s), keep `EFFORT=low`, shorten the knowledge base |
 | Nobody gets summaries | `/calls` shows `summary_emailed` 0 | the number's status callback URL is missing: set it, or run `POST /reconcile` on a schedule |
 | Calls stop being answered by the AI | `GET /guard` | budget or limit reached, or paused: wait for tomorrow, raise the limits, or `POST /guard/resume` |

@@ -58,6 +58,10 @@ class Settings:
 
     # Security
     allow_unsigned: bool = False            # local development only; never on a public server
+    # Twilio trial "Try out Voice > Receive a call > Custom" posts WITHOUT X-Twilio-Signature (seen live
+    # 2026-11-22). With this on (trial mode only), an unsigned webhook is accepted only if its CallSid is a
+    # live call on OUR account, fetched from the REST API, with the same From/To.
+    trial_verify_unsigned: bool = False
     admin_token: Optional[str] = None       # bearer token for /calls, /leads, /calendar.ics, /guard, /outbound
 
     # Brain
@@ -170,6 +174,7 @@ class Settings:
             twilio_from_number=env("TWILIO_FROM_NUMBER", ""),
             trial_mode=_bool(env("TWILIO_TRIAL"), False),
             allow_unsigned=env("ALLOW_UNSIGNED", "") == "1",
+            trial_verify_unsigned=_bool(env("TRIAL_VERIFY_UNSIGNED"), False),
             admin_token=env("ADMIN_TOKEN"),
             model=env("CLAUDE_MODEL", cls.model),
             effort=env("EFFORT", cls.effort),
