@@ -61,12 +61,12 @@ class LocalCalendar:
         def esc(text: str) -> str:
             return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
-        lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//twilio-claude-voice-agent//EN",
+        lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//twilio-ai-voice-agent//EN",
                  "X-WR-CALNAME:" + esc(calendar_name)]
         for a in self.appointments():
             lines += [
                 "BEGIN:VEVENT",
-                f"UID:{a['id']}@twilio-claude-voice-agent",
+                f"UID:{a['id']}@twilio-ai-voice-agent",
                 "DTSTAMP:" + stamp(a["created_utc"]),
                 "DTSTART:" + stamp(a["start_utc"]),
                 "DTEND:" + stamp(a["end_utc"]),

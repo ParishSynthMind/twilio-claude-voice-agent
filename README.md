@@ -1,14 +1,14 @@
-# Twilio Claude Voice Agent
+# Twilio AI Voice Agent
 
-[![tests](https://github.com/ParishSynthMind/twilio-claude-voice-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/ParishSynthMind/twilio-claude-voice-agent/actions/workflows/tests.yml)
+[![tests](https://github.com/ParishSynthMind/twilio-ai-voice-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/ParishSynthMind/twilio-ai-voice-agent/actions/workflows/tests.yml)
 
-A phone agent built straight on **Twilio Programmable Voice**, with **Claude** as the brain. Callers ring a Twilio number, or the agent rings them. Speech recognition hears the caller, Claude answers from a knowledge base and acts through five tools on this server, and Twilio speaks the answer back. There is no voice platform in between: this small FastAPI service writes the TwiML (Twilio's call instructions) for every turn of the call.
+A phone agent built straight on **Twilio Programmable Voice**, with **an LLM** as the brain. Callers ring a Twilio number, or the agent rings them. Speech recognition hears the caller, the AI answers from a knowledge base and acts through five tools on this server, and Twilio speaks the answer back. There is no voice platform in between: this small FastAPI service writes the TwiML (Twilio's call instructions) for every turn of the call.
 
 It does:
 
 - **Inbound and outbound calls** through TwiML webhooks and `<Gather input="speech">`.
 - **Answers from a small knowledge base**, and never invents prices or times.
-- **Tools Claude can call:** `check_availability` (real free slots from the calendar), `book_appointment`, `capture_lead` (only with the caller's consent), `handover` and `end_call`.
+- **Tools the AI can call:** `check_availability` (real free slots from the calendar), `book_appointment`, `capture_lead` (only with the caller's consent), `handover` and `end_call`.
 - **AI disclosure and the recording notice** in the very first sentence, on every call.
 - **Urgent hand-over to a person:** the team gets an URGENT email, and the call is transferred to a human number when one is set up.
 - **Call summary by email** after every call, sent once even when Twilio retries, with the full transcript.
@@ -17,24 +17,24 @@ It does:
 - **Outbound rules:** allowed countries only, inside the recipient's local calling hours. UAE numbers are off by default.
 
 <!-- LIVE-STATUS -->
-**Status (22 Nov 2026): live-tested with a real phone call on a Twilio trial account.** A real UK mobile rang the Twilio number; Twilio's speech recognition, Claude and this server ran a 118-second call ([transcript](examples/live-run/calls.json), [Twilio's own call record](examples/live-run/twilio-calls.json), [team emails](examples/live-run/team-emails.json), numbers masked).
+**Status (22 Nov 2026): live-tested with a real phone call on a Twilio trial account.** A real UK mobile rang the Twilio number; Twilio's speech recognition, the AI and this server ran a 118-second call ([transcript](examples/live-run/calls.json), [Twilio's own call record](examples/live-run/twilio-calls.json), [team emails](examples/live-run/team-emails.json), numbers masked).
 
 ![Live call](media/live-call-1.png)
 
-| | Proven live (real phone, real Twilio, real Claude) | Tested offline only (simulated Twilio) |
+| | Proven live (real phone, real Twilio, real LLM) | Tested offline only (simulated Twilio) |
 |---|---|---|
-| Inbound call, AI disclosure first, speech in, Claude's answer spoken back | yes | yes |
+| Inbound call, AI disclosure first, speech in, the AI's answer spoken back | yes | yes |
 | Knowledge-base answer (parking) | yes | yes |
 | `check_availability` against the calendar | yes (Monday's real free slots) | yes |
 | URGENT hand-over email when the caller is in pain | yes | yes |
 | Goodbye and `end_call` | yes | yes |
 | Summary email through `POST /reconcile` (trial numbers send no status callback) | yes | yes |
-| "One moment" path when Claude is slow | yes (first turn took 12.7 s) | yes |
+| "One moment" path when the AI is slow | yes (first turn took 12.7 s) | yes |
 | `book_appointment` completing a booking | no (the caller moved on to the hand-over) | yes |
 | Outbound calls (`POST /outbound`) | no | yes |
 | `<Dial>` transfer to a person, call recording | no (Twilio blocks both on trial accounts) | yes |
 
-Two bugs were found by the live call and fixed the same evening: the trial console's webhook arrives without `X-Twilio-Signature` (now verified through the REST API instead, trial only), and earlier turns' tool calls were not sent back to Claude, so it "corrected" slots it had really checked and raised the hand-over twice (the picture above is that call; both fixes have tests).
+Two bugs were found by the live call and fixed the same evening: the trial console's webhook arrives without `X-Twilio-Signature` (now verified through the REST API instead, trial only), and earlier turns' tool calls were not sent back to the AI, so it "corrected" slots it had really checked and raised the hand-over twice (the picture above is that call; both fixes have tests).
 <!-- /LIVE-STATUS -->
 
 ## How it works
@@ -44,7 +44,7 @@ flowchart LR
     C[Caller's phone] <-->|PSTN call| T[Twilio Voice<br/>speech recognition<br/>+ text to speech]
     T -->|signed webhook:<br/>SpeechResult| S[This service<br/>FastAPI]
     S -->|TwiML: Say + Gather| T
-    S <-->|Messages API<br/>tool use| L[Claude Sonnet 5.5]
+    S <-->|Messages API<br/>tool use| L[The AI model]
     S --> K[(Calendar<br/>SQLite + .ics<br/>or Google)]
     S --> G[(Call log<br/>SQLite)]
     S --> E[Team email<br/>summary, leads,<br/>URGENT hand-over]
@@ -52,8 +52,8 @@ flowchart LR
 ```
 
 1. **The call connects.** Twilio posts to `/twilio/voice/inbound` (the number's "A call comes in" webhook). Outbound calls placed by `POST /outbound` post to `/twilio/voice/outbound` instead. The answer is TwiML: the AI disclosure, then the recording notice, then the question, all inside a `<Gather input="speech">`, so the caller can answer straight away.
-2. **The caller speaks.** Twilio's speech recognition posts the words (`SpeechResult`, `Confidence`) to `/twilio/voice/gather`. Claude gets the call so far plus the knowledge base, and can call the tools. The tools run on this server. The answer goes back as the next `<Say>` inside a new `<Gather>`.
-3. **"One moment."** Twilio waits only a few seconds for TwiML (5 seconds on trial accounts). Claude runs in a worker thread. If the answer is ready within `REPLY_WAIT_SECONDS` (3 s), it is spoken at once. If not, the caller hears "One moment", Twilio pauses for a second and comes back to `/twilio/voice/pending` for the same answer. After three rounds the caller gets an apology and is offered a call back, never silence.
+2. **The caller speaks.** Twilio's speech recognition posts the words (`SpeechResult`, `Confidence`) to `/twilio/voice/gather`. The AI gets the call so far plus the knowledge base, and can call the tools. The tools run on this server. The answer goes back as the next `<Say>` inside a new `<Gather>`.
+3. **"One moment."** Twilio waits only a few seconds for TwiML (5 seconds on trial accounts). The AI runs in a worker thread. If the answer is ready within `REPLY_WAIT_SECONDS` (3 s), it is spoken at once. If not, the caller hears "One moment", Twilio pauses for a second and comes back to `/twilio/voice/pending` for the same answer. After three rounds the caller gets an apology and is offered a call back, never silence.
 4. **Silence.** With `actionOnEmptyResult`, silence also reaches the server. The first silence gets "Sorry, I didn't catch that". The second gets a polite goodbye.
 5. **Hand-over.** The `handover` tool emails the team, marked URGENT if the caller is in pain. If `HUMAN_NUMBER` is set, the caller hears "I'm an AI assistant, so I'm passing you to a person" and the call is `<Dial>`led to that number. If nobody answers, the caller is told the team will call back.
 6. **The end.** Twilio's status callback (`/twilio/voice/status`) brings the duration. The minutes count towards the daily budget, the team gets the summary email once, and the heartbeat is pinged.
@@ -61,10 +61,10 @@ flowchart LR
 
 ## Guardrails
 
-- **The caller's words are data, never instructions.** They reach Claude inside `<caller>` tags under a system prompt that says so. Claude can only act through the five tools, and the tools never choose an email address: summaries, leads and hand-overs go to the one `TEAM_EMAIL` in the config.
+- **The caller's words are data, never instructions.** They reach the AI inside `<caller>` tags under a system prompt that says so. The AI can only act through the five tools, and the tools never choose an email address: summaries, leads and hand-overs go to the one `TEAM_EMAIL` in the config.
 - **TwiML is built with an XML library**, so nothing a caller or the model says can break out of a `<Say>` or add a `<Dial>` (tested with a caller who says `</Say><Dial>...`).
 - **Spoken text is cleaned:** no markdown, no links, no control characters, and at most 600 characters, cut at a sentence end.
-- **Claude's failures are spoken, not silent.** A refusal, an API error, an empty answer or too many tool rounds becomes a fixed line that offers a call back, and an alert goes out.
+- **The AI's failures are spoken, not silent.** A refusal, an API error, an empty answer or too many tool rounds becomes a fixed line that offers a call back, and an alert goes out.
 - **Strict tools.** Every tool schema is closed (`strict: true`, `additionalProperties: false`), with at most 3 tool rounds per turn, low effort and a small `max_tokens`.
 - **Model ID in config** (`CLAUDE_MODEL`, default `claude-sonnet-5-5`). Preview and `-latest` names are refused at start-up.
 
@@ -115,20 +115,20 @@ ANTHROPIC_API_KEY=... .venv/bin/python scripts/simulate_call.py --live-claude --
 ## Tests
 
 ```bash
-.venv/bin/pytest -q     # 183 tests, all offline: Twilio and Claude are simulated
+.venv/bin/pytest -q     # 183 tests, all offline: Twilio and the LLM are simulated
 .venv/bin/ruff check .
 .venv/bin/pip-audit -r requirements.lock
 ```
 
-They cover whole calls through the simulated Twilio (FAQ, booking, leads, hand-over and transfer, silence, the turn and length caps, the kill switch, the daily limits, the slow-brain "one moment" path, and an injection attempt), plus signatures (including Twilio's published example), outbound rules (countries, recipient hours, UAE off by default), the REST client (form encoding, retries, error codes), Claude's tool loop against a fake client (request shape, refusal, API errors, endless tools), the calendar, scheduling and the disclosure rules. CI runs them on every push, then lint and `pip-audit`.
+They cover whole calls through the simulated Twilio (FAQ, booking, leads, hand-over and transfer, silence, the turn and length caps, the kill switch, the daily limits, the slow-brain "one moment" path, and an injection attempt), plus signatures (including Twilio's published example), outbound rules (countries, recipient hours, UAE off by default), the REST client (form encoding, retries, error codes), the AI's tool loop against a fake client (request shape, refusal, API errors, endless tools), the calendar, scheduling and the disclosure rules. CI runs them on every push, then lint and `pip-audit`.
 
 ## Versions (pinned on purpose, playbook rules B15 and B17)
 
 | Platform | Pinned | Where |
 |---|---|---|
 | Twilio REST API | `2010-04-01` (in the URL) | `config.TWILIO_API_BASE` |
-| Claude model | `claude-sonnet-5-5` | `CLAUDE_MODEL` |
-| Anthropic SDK | `anthropic==2.6.0`, below 3 | `requirements.txt` |
+| AI model | `claude-sonnet-5-5` | `CLAUDE_MODEL` |
+| LLM SDK | `anthropic==2.6.0`, below 3 | `requirements.txt` |
 | TwiML voice | `Polly.Amy`, `en-GB`, speech model `default` | `TTS_VOICE`, `SPEECH_LANGUAGE`, `SPEECH_MODEL` |
 | Every package | exact versions | `requirements.lock` (CI installs it) |
 
@@ -144,6 +144,10 @@ Dependency audit (pip-audit 2.10.1, 21 Nov 2026): 0 known vulnerabilities before
 | Calls stop being answered by the AI | `GET /guard` | budget or limit reached, or paused: wait for tomorrow, raise the limits, or `POST /guard/resume` |
 | Outbound refused | the 422 reason | number format, country not allowed, or outside the recipient's hours (by design) |
 
+## Tech stack
+
+LLM: Anthropic Claude via API, swappable.
+
 ## Licence
 
-MIT. Calendar, scheduling, notification, heartbeat and tool code are shared with this author's [ElevenLabs voice agent](https://github.com/ParishSynthMind/elevenlabs-claude-voice-agent), and the Twilio signature code with the [SMS assistant](https://github.com/ParishSynthMind/sms-telnyx-claude-assistant).
+MIT. Calendar, scheduling, notification, heartbeat and tool code are shared with this author's [ElevenLabs voice agent](https://github.com/ParishSynthMind/elevenlabs-ai-voice-agent), and the Twilio signature code with the [SMS assistant](https://github.com/ParishSynthMind/sms-telnyx-ai-assistant).
